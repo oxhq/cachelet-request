@@ -14,6 +14,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ResponseCacheProfile
 {
+    protected array $bypassResponses = [];
+
     public function __construct(
         protected Request $request,
         protected array $config = [],
@@ -23,19 +25,21 @@ class ResponseCacheProfile
 
     public function remember(\Closure $callback): SymfonyResponse
     {
-        $serialized = $this->builder()->remember(fn (): array => $this->serializeResponse($callback()));
+        $builder = $this->builder();
+        $serialized = $builder->remember(fn (): array => $this->serializeResponse($callback(), $builder));
 
-        return $this->restoreResponse($serialized);
+        return $this->restoreResponse($serialized, $builder);
     }
 
     public function staleWhileRevalidate(\Closure $callback, ?\Closure $fallback = null): SymfonyResponse
     {
-        $serialized = $this->builder()->staleWhileRevalidate(
-            fn (): array => $this->serializeResponse($callback()),
-            $fallback ? fn (): array => $this->serializeResponse($fallback()) : null,
+        $builder = $this->builder();
+        $serialized = $builder->staleWhileRevalidate(
+            fn (): array => $this->serializeResponse($callback(), $builder),
+            $fallback ? fn (): array => $this->serializeResponse($fallback(), $builder) : null,
         );
 
-        return $this->restoreResponse($serialized);
+        return $this->restoreResponse($serialized, $builder);
     }
 
     public function fetch(): ?SymfonyResponse
@@ -137,10 +141,18 @@ class ResponseCacheProfile
         return $payload;
     }
 
-    protected function serializeResponse(SymfonyResponse $response): array
+    protected function serializeResponse(SymfonyResponse $response, ?CacheletBuilderInterface $builder = null): array
     {
         if (! $this->shouldStore($response)) {
-            throw new \RuntimeException('The response type or status is not cacheable by Cachelet request caching.');
+            if ($builder !== null) {
+                $stored = $builder->fetch();
+
+                if (is_array($stored) && ! $this->isBypassPayload($stored)) {
+                    return $stored;
+                }
+            }
+
+            return $this->makeBypassPayload($response);
         }
 
         return [
@@ -150,8 +162,16 @@ class ResponseCacheProfile
         ];
     }
 
-    protected function restoreResponse(array $payload): SymfonyResponse
+    protected function restoreResponse(array $payload, ?CacheletBuilderInterface $builder = null): SymfonyResponse
     {
+        if ($this->isBypassPayload($payload)) {
+            if ($builder !== null) {
+                $builder->invalidate();
+            }
+
+            return $this->takeBypassResponse((string) $payload['__cachelet_bypass']);
+        }
+
         return new Response(
             $payload['content'] ?? '',
             $payload['status'] ?? 200,
@@ -203,5 +223,30 @@ class ResponseCacheProfile
         $normalized = trim((string) $normalized, '_');
 
         return $normalized === '' ? 'request' : $normalized;
+    }
+
+    protected function makeBypassPayload(SymfonyResponse $response): array
+    {
+        $token = bin2hex(random_bytes(16));
+        $this->bypassResponses[$token] = $response;
+
+        return ['__cachelet_bypass' => $token];
+    }
+
+    protected function takeBypassResponse(string $token): SymfonyResponse
+    {
+        $response = $this->bypassResponses[$token] ?? null;
+        unset($this->bypassResponses[$token]);
+
+        if (! $response instanceof SymfonyResponse) {
+            throw new \RuntimeException('Missing Cachelet bypass response payload.');
+        }
+
+        return $response;
+    }
+
+    protected function isBypassPayload(array $payload): bool
+    {
+        return array_key_exists('__cachelet_bypass', $payload);
     }
 }

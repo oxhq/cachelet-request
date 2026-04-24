@@ -44,6 +44,7 @@ If you do not define a scope explicitly, `cachelet-request` infers one from the 
 - methods default to `GET` and `HEAD`
 - statuses default to `200`
 - streamed and binary responses are bypassed
+- non-cacheable refresh callbacks keep the last cacheable payload during SWR instead of replacing it with an invalid response shape
 
 Vary dimensions are explicit:
 
