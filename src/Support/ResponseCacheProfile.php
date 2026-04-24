@@ -7,6 +7,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Arr;
 use Oxhq\Cachelet\Contracts\CacheletBuilderInterface;
 use Oxhq\Cachelet\Facades\Cachelet;
+use Oxhq\Cachelet\ValueObjects\CacheScope;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -53,11 +54,13 @@ class ResponseCacheProfile
         $builder = Cachelet::for($this->resolvedPrefix())
             ->from($this->payload())
             ->withMetadata([
-                'type' => 'request',
                 'route' => $this->routeName(),
                 'method' => $this->request->method(),
                 'path' => $this->request->path(),
             ]);
+
+        $builder->asModule('request');
+        $this->applyScopeToBuilder($builder);
 
         if ($tags = ($this->options['tags'] ?? [])) {
             $builder->withTags($tags);
@@ -72,6 +75,13 @@ class ResponseCacheProfile
         }
 
         return $builder;
+    }
+
+    public function scope(CacheScope $scope): static
+    {
+        $this->options['scope'] = $scope;
+
+        return $this;
     }
 
     public function resolvedPrefix(): string
@@ -165,6 +175,26 @@ class ResponseCacheProfile
     protected function routeName(): ?string
     {
         return $this->request->route()?->getName();
+    }
+
+    protected function applyScopeToBuilder(CacheletBuilderInterface $builder): void
+    {
+        $scope = $this->options['scope'] ?? $this->makeInferredScope($this->resolvedPrefix());
+
+        $source = array_key_exists('scope', $this->options) ? 'explicit' : 'inferred';
+
+        if ($source === 'inferred') {
+            $builder->withInferredScope($scope);
+
+            return;
+        }
+
+        $builder->scope($scope);
+    }
+
+    protected function makeInferredScope(string $identifier): ?CacheScope
+    {
+        return CacheScope::inferred($identifier);
     }
 
     protected function normalizeSegment(string $value): string
