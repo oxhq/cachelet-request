@@ -1,8 +1,8 @@
 # cachelet-request
 
-Read-only split of the Cachelet monorepo package at `packages/cachelet-request`.
+Route response caching with explicit vary dimensions and Cachelet coordinates.
 
-Request and response caching integration for Cachelet.
+`cachelet-request` turns response caches into inspectable request-family entries with route metadata, vary inputs, namespace invalidation, and safe bypass behavior.
 
 ## Install
 
@@ -10,48 +10,41 @@ Request and response caching integration for Cachelet.
 composer require oxhq/cachelet-request
 ```
 
-## Features
+## Best Fit
 
-- Route `->cachelet()` integration
-- Middleware-driven response caching
-- `scope(...)` support on request cache profiles
-- Vary by query string, headers, locale, and authenticated user
-- Namespace invalidation for request caches
-- Canonical `module = request` coordinates and telemetry
+Use this package when route responses are expensive, cacheable, and need explicit vary rules.
+
+It provides:
+
+- route `->cachelet()` integration
+- middleware-driven response caching
+- vary by query string, headers, locale, and authenticated user
+- namespace invalidation for request caches
+- bypass behavior for streamed, binary, and non-cacheable responses
+- canonical `module = request` coordinates and telemetry
 
 ## Example
 
 ```php
-use Oxhq\Cachelet\ValueObjects\CacheScope;
-
-$scope = /* CacheScope instance for the intervention boundary */;
-
 Route::get('/users', UserIndexController::class)
     ->name('users.index')
     ->cachelet(600, [
         'vary' => ['query' => true, 'auth' => true],
         'namespace' => 'users',
-        'scope' => $scope,
     ]);
 ```
 
-If you do not define a scope explicitly, `cachelet-request` infers one from the route or namespace prefix boundary it already uses for request-cache grouping.
+## Contract
 
-## Request Contract
+Defaults in `0.2.x`:
 
-`cachelet-request` caches only configured cacheable methods and statuses. In `0.2.x` that means:
-
-- methods default to `GET` and `HEAD`
-- statuses default to `200`
+- cacheable methods: `GET`, `HEAD`
+- cacheable statuses: `200`
 - streamed and binary responses are bypassed
-- non-cacheable refresh callbacks keep the last cacheable payload during SWR instead of replacing it with an invalid response shape
+- non-cacheable SWR refresh callbacks preserve the last good cacheable payload
 
-Vary dimensions are explicit:
+## Docs
 
-- query string, full or partial
-- selected headers
-- authenticated user identity vs guest
-- locale
-- custom payload callback
-
-Use namespace or route-prefix invalidation for request caches. Do not assume CDN/proxy cache orchestration or fragment caching in this module.
+- [`../../docs/operations.md`](../../docs/operations.md)
+- [`../../docs/operator-questions.md`](../../docs/operator-questions.md)
+- [`../../docs/install-matrix.md`](../../docs/install-matrix.md)
